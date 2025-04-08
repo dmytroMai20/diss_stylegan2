@@ -9,6 +9,8 @@ import math
 from tqdm import tqdm
 from torch import nn
 import dataset
+import matplotlib.pyplot as plt
+
 def train():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     dim_w = 512
@@ -28,7 +30,7 @@ def train():
 
     generator = Generator(int(math.log2(img_res)),dim_w).to(device)
     discriminator = Discriminator(int(math.log2(img_res))).to(device)
-    mapping_net = MappingMLP(dim_w, mappingnet_layers)
+    mapping_net = MappingMLP(dim_w, mappingnet_layers).to(device)
 
     num_blocks = int(math.log2(img_res))-1
     disc_loss = DiscriminatorLoss().to(device)
@@ -37,9 +39,9 @@ def train():
     path_len_pen = PathLengthPenalty(0.99).to(device)
     r1_pen = GradientPenalty()
 
-    g_optim = optim.Adam(generator.parameters(), lr=lr, betas=(0, 0.99))
-    d_optim = optim.Adam(discriminator.parameters(), lr=lr, betas=(0, 0.99))
-    mlp_optim = optim.Adam(mapping_net.parameters(), lr=mapping_lr, betas=(0, 0.99))
+    g_optim = optim.Adam(generator.parameters(), lr=lr, betas=(0.0, 0.99))
+    d_optim = optim.Adam(discriminator.parameters(), lr=lr, betas=(0.0, 0.99))
+    mlp_optim = optim.Adam(mapping_net.parameters(), lr=mapping_lr, betas=(0.0, 0.99))
 
     # add mlp mapping and optim
 
@@ -50,8 +52,10 @@ def train():
 
     num_batches = len(data_loader)
 
+    d_losses, g_losses = [], []
+
     for epoch in range(epochs):
-        for batch_idx, real_images in enumerate(tqdm(data_loader)):
+        for batch_idx, (real_images, _) in enumerate(tqdm(data_loader)):
             d_optim.zero_grad()
             real_images = real_images.to(device)
             #d_optim.zero_grad() 
@@ -72,6 +76,8 @@ def train():
             nn.utils.clip_grad_norm_(discriminator.parameters(), max_norm=1)
             d_optim.step()
 
+            d_losses.append(d_loss.item())
+
             g_optim.zero_grad()
             mlp_optim.zero_grad()
 
@@ -91,8 +97,20 @@ def train():
 
             g_optim.step()
             mlp_optim.step()
+
+            g_losses.append(g_loss.item())
         print(f"epoch {epoch}/{epochs} completed")
     save_model("data", mapping_net, generator, "STL10", str(im_size))
+
+    plt.figure(figsize=(10, 5))
+    plt.plot(d_losses, label="Discriminator Loss")
+    plt.plot(g_losses, label="Generator Loss")
+    plt.xlabel("Iteration")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.title("Training Loss Curves")
+    plt.savefig("loss_plot.png")
+    plt.show()
 
 def get_w(batch_size: int, style_mixing_prob, num_blocks, w_dims, mapping_network,device):
         if torch.rand(()).item() < style_mixing_prob:
@@ -140,7 +158,6 @@ def save_model(path, mapping_net, generator, dataset,res):
                  'mapping_net':mapping_net.state_dict()}, save_path)
 
 if __name__ == "__main__":
-    #train()
-    pass
+    train()
     #data_loader = dataset.get_loader(32,"STL10")
     #print(f"len : {len(data_loader)}")
