@@ -13,6 +13,8 @@ import matplotlib.pyplot as plt
 
 def train():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    dataset_name = "CelebA"
     dim_w = 512
     im_size = 64
     mappingnet_layers = 8
@@ -48,7 +50,7 @@ def train():
     epochs = 3
     batch_size = 32
 
-    data_loader = dataset.get_loader(batch_size,im_size,"STL10")
+    data_loader = dataset.get_loader(batch_size,im_size,dataset_name)
 
     num_batches = len(data_loader)
 
@@ -100,7 +102,7 @@ def train():
 
             g_losses.append(g_loss.item())
         print(f"epoch {epoch}/{epochs} completed")
-    save_model("data", mapping_net, generator, "STL10", str(im_size))
+    save_model("data", mapping_net, generator, dataset_name, str(im_size))
 
     plt.figure(figsize=(10, 5))
     plt.plot(d_losses, label="Discriminator Loss")
@@ -158,6 +160,6 @@ def save_model(path, mapping_net, generator, dataset,res):
                  'mapping_net':mapping_net.state_dict()}, save_path)
 
 if __name__ == "__main__":
-    #train()
-    data_loader = dataset.get_loader(32,64,"CelebA")
-    print(f"len : {len(data_loader)}")
+    train()
+    #data_loader = dataset.get_loader(32,64,"CelebA")
+    #print(f"len : {len(data_loader)}")
