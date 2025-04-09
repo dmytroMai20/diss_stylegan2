@@ -6,13 +6,13 @@ from torchvision.datasets import CelebA
 from torchvision.datasets import STL10
 from torch.utils.data import DataLoader
 
+
 def get_loader(batch_s,res, data="FashionMNIST"):
 
     # Define transformations
     if data == "FashionMNIST":
         transform = transforms.Compose([
             transforms.Resize(32),  # Resize to desired resolution
-            transforms.CenterCrop(32),  # Crop to maintain face alignment
             transforms.ToTensor(),  # Convert to tensor
             transforms.Normalize([0.5], [0.5])  # Normalize between -1 and 1
         ])
@@ -25,15 +25,16 @@ def get_loader(batch_s,res, data="FashionMNIST"):
         return dataloader
     elif data == "CelebA":
         transform = transforms.Compose([
-        transforms.Resize(128),  # Resize to 128x128 (common for GANs)
-        transforms.CenterCrop(128),  # Crop to maintain face alignment
+        transforms.CenterCrop(178),  # make it square
+        transforms.Resize(res),  # Resize to 128x128 (common for GANs)
         transforms.ToTensor(),  # Convert to tensor
         #transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])  # Normalize RGB channels
         ])
 
         # Download and load the dataset
         dataset = datasets.ImageFolder(root="./data/celeba", transform=transform)
-
+        #dataset = CelebA(root="./data", split="train", download=True, transform=transform)
+        #dataset = load_dataset("celeba", split="train[:1000]")  # first 1000 images
         # Create a DataLoader
         dataloader = DataLoader(dataset, batch_size=batch_s, shuffle=True, num_workers=1, pin_memory=True)
         return dataloader

@@ -158,6 +158,6 @@ def save_model(path, mapping_net, generator, dataset,res):
                  'mapping_net':mapping_net.state_dict()}, save_path)
 
 if __name__ == "__main__":
-    train()
-    #data_loader = dataset.get_loader(32,"STL10")
-    #print(f"len : {len(data_loader)}")
+    #train()
+    data_loader = dataset.get_loader(32,64,"CelebA")
+    print(f"len : {len(data_loader)}")
