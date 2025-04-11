@@ -19,9 +19,9 @@ def load_model(path, dataset, res, device):
 def main():
     num_blocks = int(math.log2(64))-1
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    generator, mapping_net = load_model("data","STL10", 64, device)
+    generator, mapping_net = load_model("data","CelebA", 64, device)
     imgs, w = gen_images(32, generator, num_blocks, 0.9, 512, mapping_net, device)
-    #imgs = (imgs + 1) / 2
+    imgs = (imgs + 1) / 2
     grid = vutils.make_grid(imgs, nrow=8)
     plt.figure(figsize=(8,8))
     plt.axis("off")

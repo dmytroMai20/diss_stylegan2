@@ -36,7 +36,7 @@ def get_loader(batch_s,res, data="FashionMNIST"):
         #dataset = CelebA(root="./data", split="train", download=True, transform=transform)
         #dataset = load_dataset("celeba", split="train[:1000]")  # first 1000 images
         # Create a DataLoader
-        dataloader = DataLoader(dataset, batch_size=batch_s, shuffle=True, num_workers=1, pin_memory=True)
+        dataloader = DataLoader(dataset, batch_size=batch_s, shuffle=True, drop_last=True, num_workers=1, pin_memory=True)
         return dataloader
     elif data == "STL10":
         transform = transforms.Compose([

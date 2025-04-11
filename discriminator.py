@@ -35,7 +35,7 @@ class Discriminator(nn.Module):
 
     def forward(self, x: torch.Tensor):
         # Try to normalize the image (this is totally optional, but sped up the early training a little)
-        x = x - 0.5
+        #x = x - 0.5 # this could be detrimental
         # Convert from RGB
         x = self.from_rgb(x)
         # Run through the [discriminator blocks](#discriminator_block)
