@@ -3,6 +3,7 @@ from torch import optim
 from generator import Generator
 from discriminator import Discriminator
 from mappingmlp import MappingMLP
+from ema import EMA
 from util import PathLengthPenalty, GradientPenalty
 from losses import DiscriminatorLoss, GeneratorLoss
 import math
@@ -33,6 +34,7 @@ def train():
     generator = Generator(int(math.log2(img_res)),dim_w).to(device)
     discriminator = Discriminator(int(math.log2(img_res))).to(device)
     mapping_net = MappingMLP(dim_w, mappingnet_layers).to(device)
+    ema = EMA(generator)
 
     num_blocks = int(math.log2(img_res))-1
     disc_loss = DiscriminatorLoss().to(device)
@@ -99,7 +101,7 @@ def train():
 
             g_optim.step()
             mlp_optim.step()
-
+            ema.update(generator)
             g_losses.append(g_loss.item())
         print(f"epoch {epoch}/{epochs} completed")
     save_model("data", mapping_net, generator, dataset_name, str(im_size))
@@ -154,10 +156,11 @@ def gen_images(batch_size, generator, num_blocks, style_mixing_prob, w_dims, mlp
      imgs = generator(w, noise)
      return imgs, w
 
-def save_model(path, mapping_net, generator, dataset,res):
+def save_model(path, mapping_net, generator, ema, dataset,res):
      save_path = f"{path}/stylegan2_{dataset}_{res}.pt"
      torch.save({'generator':generator.state_dict(),
-                 'mapping_net':mapping_net.state_dict()}, save_path)
+                 'mapping_net':mapping_net.state_dict(),
+                 'ema':ema.state_dict()}, save_path)
 
 if __name__ == "__main__":
     train()

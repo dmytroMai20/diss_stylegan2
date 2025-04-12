@@ -9,6 +9,7 @@ class Generator(nn.Module):
     def __init__(self, log_res, dims_w, num_features=32, max_features = 512):
         super().__init__()
         #log_res = math.log2(res)
+        self.args = [log_res, dims_w, num_features, max_features]
         features = [min(max_features, num_features* (2**i)) for i in range(log_res-2, -1, -1)]
         assert len(features) == (log_res-1)
         self.num_blocks = log_res-1
