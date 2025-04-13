@@ -11,6 +11,7 @@ from tqdm import tqdm
 from torch import nn
 import dataset
 import matplotlib.pyplot as plt
+from fid_score import compute_fid
 
 def train():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -34,7 +35,7 @@ def train():
     generator = Generator(int(math.log2(img_res)),dim_w).to(device)
     discriminator = Discriminator(int(math.log2(img_res))).to(device)
     mapping_net = MappingMLP(dim_w, mappingnet_layers).to(device)
-    ema = EMA(generator)
+    ema = EMA(generator).to(device)
 
     num_blocks = int(math.log2(img_res))-1
     disc_loss = DiscriminatorLoss().to(device)
@@ -57,6 +58,9 @@ def train():
     num_batches = len(data_loader)
 
     d_losses, g_losses = [], []
+    fid_scores = []
+    best_fid = 1000000
+    best_model = generator.state_dict()
 
     for epoch in range(epochs):
         for batch_idx, (real_images, _) in enumerate(tqdm(data_loader)):
@@ -103,8 +107,14 @@ def train():
             mlp_optim.step()
             ema.update(generator)
             g_losses.append(g_loss.item())
-        print(f"epoch {epoch}/{epochs} completed")
-    save_model("data", mapping_net, generator, dataset_name, str(im_size))
+            fid_score = compute_fid(data_loader,mapping_net,ema,device)
+            fid_scores.append(fid_score)
+            if fid_score >= best_fid:
+                 best_fid = fid_score
+                 best_model = ema.state_dict()
+                 
+        print(f"epoch {epoch}/{epochs} completed. FID score: {fid_scores[-1]}")
+    save_model("data", mapping_net, generator, ema,best_model, dataset_name, str(im_size))
 
     plt.figure(figsize=(10, 5))
     plt.plot(d_losses, label="Discriminator Loss")
@@ -114,6 +124,15 @@ def train():
     plt.legend()
     plt.title("Training Loss Curves")
     plt.savefig("loss_plot.png")
+    plt.show()
+
+    plt.figure(figsize=(10, 5))
+    plt.plot(fid_scores, label="FID scores")
+    plt.xlabel("Epoch")
+    plt.ylabel("EMA FID")
+    plt.legend()
+    plt.title("EMA FID curve")
+    plt.savefig("fid_plot.png")
     plt.show()
 
 def get_w(batch_size: int, style_mixing_prob, num_blocks, w_dims, mapping_network,device):
@@ -156,11 +175,12 @@ def gen_images(batch_size, generator, num_blocks, style_mixing_prob, w_dims, mlp
      imgs = generator(w, noise)
      return imgs, w
 
-def save_model(path, mapping_net, generator, ema, dataset,res):
+def save_model(path, mapping_net, generator, ema, best_model, dataset,res):
      save_path = f"{path}/stylegan2_{dataset}_{res}.pt"
      torch.save({'generator':generator.state_dict(),
                  'mapping_net':mapping_net.state_dict(),
-                 'ema':ema.state_dict()}, save_path)
+                 'ema':ema.state_dict(),
+                 'best_model':best_model}, save_path)
 
 if __name__ == "__main__":
     train()
