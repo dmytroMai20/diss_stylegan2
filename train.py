@@ -16,6 +16,7 @@ from torchmetrics.image.kid import KernelInceptionDistance
 import torchvision.utils as vutils
 import torchvision.transforms as T
 import time
+import numpy as np
 
 def train():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -70,7 +71,11 @@ def train():
 
     total_imgs_seen = 0
 
+    gpu_mb_alloc = []
+    gpu_mb_reserved = []
+    times_per_epoch = []
     for epoch in range(epochs):
+        start_time = time.time()
         for batch_idx, (real_images, _) in enumerate(tqdm(data_loader)):
             d_optim.zero_grad()
             real_images = real_images.to(device)
@@ -115,6 +120,11 @@ def train():
             mlp_optim.step()
             ema.update(generator)
             g_losses.append(g_loss.item())
+            
+            gpu_mb_alloc.append(torch.cuda.memory_allocated() / (1024 ** 2))
+            gpu_mb_reserved.append(torch.cuda.memory_reserved() / (1024 ** 2))
+            total_imgs_seen+=batch_size
+        times_per_epoch.append(time.time()-start_time)
         fid_score = compute_fid(fid_real_imgs,mapping_net,ema.ema_model,device)
         fid_scores.append(fid_score)
         if fid_score >= best_fid:
@@ -126,6 +136,9 @@ def train():
         print(f"epoch {epoch}/{epochs} completed. FID score: {fid_scores[-1]}")
     save_model("data", mapping_net, generator, ema.ema_model,best_model, dataset_name, str(im_size))
 
+    time_per_kimg = ((sum(times_per_epoch)/len(times_per_epoch))/(len(data_loader)*batch_size))*1000
+
+    print(f"Time per 1kimg: {time_per_kimg:.3f}")
     plt.figure(figsize=(10, 5))
     plt.plot(d_losses, label="Discriminator Loss")
     plt.plot(g_losses, label="Generator Loss")
@@ -137,6 +150,16 @@ def train():
     plt.show()
 
     plt.figure(figsize=(10, 5))
+    plt.plot(gpu_mb_alloc, label="CUDA Memory Allocated (MB)")
+    plt.plot(gpu_mb_reserved, label="CUDA Memory Reserved (MB)")
+    plt.xlabel("Iteration")
+    plt.ylabel("MB")
+    plt.legend()
+    plt.title("Training Memory Usage")
+    plt.savefig(f"memory_plot_{dataset_name}_{img_res}.png")
+    plt.show()
+    """
+    plt.figure(figsize=(10, 5))
     x = range(1,epochs+1)
     plt.plot(x,fid_scores, label="FID scores")
     plt.xlabel("Epoch")
@@ -145,7 +168,7 @@ def train():
     plt.title("EMA FID curve")
     plt.savefig(f"fid_plot_{dataset_name}_{img_res}.png")
     plt.show()
-
+    
     plt.figure(figsize=(10, 5))
     x = range(1,epochs+1)
     plt.errorbar(x,kid_means,yerr=kid_stds,capsize=5, label="KID scores")
@@ -155,7 +178,36 @@ def train():
     plt.title("EMA KID curve")
     plt.savefig(f"kid_plot_{dataset_name}_{img_res}.png")
     plt.show()
+    """
+    # plot FID and KID against time 
+    cum_times = np.cumsum(np.array(times_per_epoch))
+    fig, ax1 = plt.subplots()   # may need to fix figure size to (10,5) too
 
+    # FID line (left y-axis)
+    color = 'tab:blue'
+    ax1.set_xlabel('Epoch')
+    ax1.set_ylabel('FID', color=color)
+    ax1.plot(cum_times, fid_scores, color=color, label='FID')
+    ax1.tick_params(axis='y', labelcolor=color)
+
+    # KID line with error bars (right y-axis)
+    ax2 = ax1.twinx()
+    color = 'tab:red'
+    ax2.set_ylabel('KID', color=color)
+    ax2.errorbar(cum_times, kid_means, yerr=kid_stds, color=color, linestyle='--', marker='o', label='KID ± std')
+    ax2.tick_params(axis='y', labelcolor=color)
+
+    # Layout and title
+    fig.tight_layout()
+    plt.title("FID and KID over Training Time")
+    plt.savefig(f"fid_vs_kid_plot_{dataset_name}_{str(im_size)}.png")
+    plt.show()
+
+
+
+    # save FID, KID and times at each epoch to compare to DDPM
+    save_metrics("data",cum_times, fid_scores, kid_means, kid_stds, gpu_mb_alloc, gpu_mb_reserved, time_per_kimg, batch_size, dataset_name, str(im_size))
+    
 def get_w(batch_size: int, style_mixing_prob, num_blocks, w_dims, mapping_network,device):
         if torch.rand(()).item() < style_mixing_prob:
             cross_over_point = int(torch.rand(()).item() * num_blocks)
@@ -196,9 +248,20 @@ def gen_images(batch_size, generator, num_blocks, style_mixing_prob, w_dims, mlp
      imgs = generator(w, noise)
      return imgs, w
 
+def save_metrics(path, times, fids, kids_mean, kids_stds, gpu_alloc, gpu_reserved, time_kimg, batch_size, dataset, res):
+    save_path = f"{path}/stylegan2_{dataset}_{res}_metrics.pth"
+    torch.save({'times':times,
+                'fids':fids,
+                'kids_mean':kids_mean,
+                'kids_stds':kids_stds,
+                'gpu_alloc':gpu_alloc,  #gpu alloc and reserved in mb
+                'gpu_reserved':gpu_reserved,
+                'time_kimg':time_kimg,
+                'batch_size':batch_size}, save_path)
+     
 def save_model(path, mapping_net, generator, ema, best_model, dataset,res):
-     save_path = f"{path}/stylegan2_{dataset}_{res}.pt"
-     torch.save({'generator':generator.state_dict(),
+    save_path = f"{path}/stylegan2_{dataset}_{res}.pt"
+    torch.save({'generator':generator.state_dict(),
                  'mapping_net':mapping_net.state_dict(),
                  'ema':ema.state_dict(),
                  'best_model':best_model}, save_path)

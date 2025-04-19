@@ -12,7 +12,7 @@ def get_loader(batch_s,res, data="FashionMNIST"):
     # Define transformations
     if data == "FashionMNIST":
         transform = transforms.Compose([
-            transforms.Resize(32), 
+            transforms.Resize(res), 
             transforms.ToTensor(),  
             transforms.Normalize([0.5], [0.5])  # Normalize between -1 and 1
         ])
@@ -42,6 +42,7 @@ def get_loader(batch_s,res, data="FashionMNIST"):
         transform = transforms.Compose([
         transforms.Resize(res),  # Resize to 128x128 (common for GANs)
         transforms.ToTensor(),  # Convert to tensor
+        transforms.Normalize([0.5]*3, [0.5]*3)
         #transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])  # Normalize RGB channels
         ])
 
