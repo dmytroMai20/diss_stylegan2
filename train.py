@@ -11,7 +11,11 @@ from tqdm import tqdm
 from torch import nn
 import dataset
 import matplotlib.pyplot as plt
-from fid_score import compute_fid
+from torchmetrics.image.fid import FrechetInceptionDistance
+from torchmetrics.image.kid import KernelInceptionDistance
+import torchvision.utils as vutils
+import torchvision.transforms as T
+import time
 
 def train():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -50,7 +54,6 @@ def train():
 
     # add mlp mapping and optim
 
-    epochs = 3
     batch_size = 32
 
     data_loader = dataset.get_loader(batch_size,im_size,dataset_name)
@@ -59,8 +62,13 @@ def train():
 
     d_losses, g_losses = [], []
     fid_scores = []
+    kid_means = []
+    kid_stds = []
     best_fid = 1000000
     best_model = generator.state_dict()
+    fid_real_imgs = load_real_images(data_loader,device)
+
+    total_imgs_seen = 0
 
     for epoch in range(epochs):
         for batch_idx, (real_images, _) in enumerate(tqdm(data_loader)):
@@ -107,14 +115,16 @@ def train():
             mlp_optim.step()
             ema.update(generator)
             g_losses.append(g_loss.item())
-            fid_score = compute_fid(data_loader,mapping_net,ema,device)
-            fid_scores.append(fid_score)
-            if fid_score >= best_fid:
-                 best_fid = fid_score
-                 best_model = ema.state_dict()
-                 
+        fid_score = compute_fid(fid_real_imgs,mapping_net,ema.ema_model,device)
+        fid_scores.append(fid_score)
+        if fid_score >= best_fid:
+             best_fid = fid_score
+             best_model = ema.ema_model.state_dict()
+        kid_mean, kid_std = compute_kid(fid_real_imgs, mapping_net, ema.ema_model, device)
+        kid_means.append(kid_mean)
+        kid_stds.append(kid_std)
         print(f"epoch {epoch}/{epochs} completed. FID score: {fid_scores[-1]}")
-    save_model("data", mapping_net, generator, ema,best_model, dataset_name, str(im_size))
+    save_model("data", mapping_net, generator, ema.ema_model,best_model, dataset_name, str(im_size))
 
     plt.figure(figsize=(10, 5))
     plt.plot(d_losses, label="Discriminator Loss")
@@ -123,16 +133,27 @@ def train():
     plt.ylabel("Loss")
     plt.legend()
     plt.title("Training Loss Curves")
-    plt.savefig("loss_plot.png")
+    plt.savefig(f"loss_plot_{dataset_name}_{img_res}.png")
     plt.show()
 
     plt.figure(figsize=(10, 5))
-    plt.plot(fid_scores, label="FID scores")
+    x = range(1,epochs+1)
+    plt.plot(x,fid_scores, label="FID scores")
     plt.xlabel("Epoch")
     plt.ylabel("EMA FID")
     plt.legend()
     plt.title("EMA FID curve")
-    plt.savefig("fid_plot.png")
+    plt.savefig(f"fid_plot_{dataset_name}_{img_res}.png")
+    plt.show()
+
+    plt.figure(figsize=(10, 5))
+    x = range(1,epochs+1)
+    plt.errorbar(x,kid_means,yerr=kid_stds,capsize=5, label="KID scores")
+    plt.xlabel("Epoch")
+    plt.ylabel("EMA KID")
+    plt.legend()
+    plt.title("EMA KID curve")
+    plt.savefig(f"kid_plot_{dataset_name}_{img_res}.png")
     plt.show()
 
 def get_w(batch_size: int, style_mixing_prob, num_blocks, w_dims, mapping_network,device):
@@ -182,6 +203,58 @@ def save_model(path, mapping_net, generator, ema, best_model, dataset,res):
                  'ema':ema.state_dict(),
                  'best_model':best_model}, save_path)
 
+transform = T.Compose([
+    T.Resize((299, 299)),  # InceptionV3 expects 299x299
+    T.Normalize([-1]*3, [2]*3)
+])
+
+def load_real_images(real_dataloader, device, sample_size= 5000): # fit all real images on the device straight away to reduce I/O cost of fitting on device 
+    real_images = []
+    with torch.no_grad():
+        for imgs, _ in real_dataloader:
+            real_images.append(imgs)
+            if sum([i.size(0) for i in real_images]) >= sample_size:
+                break
+    real_images = torch.cat(real_images, dim=0)[:sample_size]
+    real_images = transform(real_images).to(device)
+    #real_images = transform(real_images)
+    return real_images
+def compute_fid(real_imgs, mapping_net, generator, device, res=64, mixing_prob=0.9, dim_w=512,batch_size=32, sample_size=5000): # use EMA for generator
+    with torch.no_grad():
+        real_imgs.to(device)
+        fid = FrechetInceptionDistance(feature=2048, normalize=True).to(device)
+        num_blocks = int(math.log2(res))-1
+        fid.update(real_imgs[:sample_size], real=True)
+
+        num_batches = sample_size // batch_size # there is going to be slight imbalance (5000 real vs 5024 fake) but should not affect results and still yeild in accurate result
+        for _ in range(num_batches):
+            fake_images, _ = gen_images(batch_size, generator, num_blocks, mixing_prob, dim_w, mapping_net, device)
+            fake_images = transform(fake_images)
+            fid.update(fake_images, real=False)
+            del fake_images
+            torch.cuda.empty_cache
+        fid_value = fid.compute()
+        fid.reset()
+    return fid_value.item()
+
+def compute_kid(real_imgs, mapping_net, generator, device, res=64, mixing_prob=0.9, dim_w=512, batch_size=32, sample_size=500): # smaller sample size for kid
+    with torch.no_grad():
+        real_imgs.to(device)
+        kid = KernelInceptionDistance(feature=2048,subset_size=50, normalize=True).to(device)
+        num_blocks = int(math.log2(res))-1
+        kid.update(real_imgs[:sample_size], real=True)
+
+        num_batches = sample_size // batch_size # there is going to be slight imbalance (5000 real vs 5024 fake) but should not affect results and still yeild in accurate result
+        for _ in range(num_batches):
+            fake_images, _ = gen_images(batch_size, generator, num_blocks, mixing_prob, dim_w, mapping_net, device)
+            fake_images = transform(fake_images)
+            kid.update(fake_images, real=False)
+            del fake_images
+            torch.cuda.empty_cache
+        kid_values = kid.compute()
+        kid.reset()
+    return [kid_values[0].item(), kid_values[1].item()]
+          
 if __name__ == "__main__":
     train()
     #data_loader = dataset.get_loader(32,64,"CelebA")
