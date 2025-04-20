@@ -271,51 +271,49 @@ transform = T.Compose([
     T.Normalize([-1]*3, [2]*3)
 ])
 
+@torch.no_grad()
 def load_real_images(real_dataloader, device, sample_size= 5000): # fit all real images on the device straight away to reduce I/O cost of fitting on device 
     real_images = []
-    with torch.no_grad():
-        for imgs, _ in real_dataloader:
-            real_images.append(imgs)
-            if sum([i.size(0) for i in real_images]) >= sample_size:
-                break
+    for imgs, _ in real_dataloader:
+        real_images.append(imgs)
+        if sum([i.size(0) for i in real_images]) >= sample_size:
+            break
     real_images = torch.cat(real_images, dim=0)[:sample_size]
     real_images = transform(real_images).to(device)
     #real_images = transform(real_images)
     return real_images
+@torch.no_grad()
 def compute_fid(real_imgs, mapping_net, generator, device, res=64, mixing_prob=0.9, dim_w=512,batch_size=32, sample_size=5000): # use EMA for generator
-    with torch.no_grad():
-        real_imgs.to(device)
-        fid = FrechetInceptionDistance(feature=2048, normalize=True).to(device)
-        num_blocks = int(math.log2(res))-1
-        fid.update(real_imgs[:sample_size], real=True)
-
-        num_batches = sample_size // batch_size # there is going to be slight imbalance (5000 real vs 5024 fake) but should not affect results and still yeild in accurate result
-        for _ in range(num_batches):
-            fake_images, _ = gen_images(batch_size, generator, num_blocks, mixing_prob, dim_w, mapping_net, device)
-            fake_images = transform(fake_images)
-            fid.update(fake_images, real=False)
-            del fake_images
-            torch.cuda.empty_cache
-        fid_value = fid.compute()
-        fid.reset()
+    real_imgs.to(device)
+    fid = FrechetInceptionDistance(feature=2048, normalize=True).to(device)
+    num_blocks = int(math.log2(res))-1
+    fid.update(real_imgs[:sample_size], real=True)
+    num_batches = sample_size // batch_size # there is going to be slight imbalance (5000 real vs 5024 fake) but should not affect results and still yeild in accurate result
+    for _ in range(num_batches):
+        fake_images, _ = gen_images(batch_size, generator, num_blocks, mixing_prob, dim_w, mapping_net, device)
+        fake_images = transform(fake_images)
+        fid.update(fake_images, real=False)
+        del fake_images
+        torch.cuda.empty_cache
+    fid_value = fid.compute()
+    fid.reset()
     return fid_value.item()
 
+@torch.no_grad()
 def compute_kid(real_imgs, mapping_net, generator, device, res=64, mixing_prob=0.9, dim_w=512, batch_size=32, sample_size=500): # smaller sample size for kid
-    with torch.no_grad():
-        real_imgs.to(device)
-        kid = KernelInceptionDistance(feature=2048,subset_size=50, normalize=True).to(device)
-        num_blocks = int(math.log2(res))-1
-        kid.update(real_imgs[:sample_size], real=True)
-
-        num_batches = sample_size // batch_size # there is going to be slight imbalance (5000 real vs 5024 fake) but should not affect results and still yeild in accurate result
-        for _ in range(num_batches):
-            fake_images, _ = gen_images(batch_size, generator, num_blocks, mixing_prob, dim_w, mapping_net, device)
-            fake_images = transform(fake_images)
-            kid.update(fake_images, real=False)
-            del fake_images
-            torch.cuda.empty_cache
-        kid_values = kid.compute()
-        kid.reset()
+    real_imgs.to(device)
+    kid = KernelInceptionDistance(feature=2048,subset_size=50, normalize=True).to(device)
+    num_blocks = int(math.log2(res))-1
+    kid.update(real_imgs[:sample_size], real=True)
+    num_batches = sample_size // batch_size # there is going to be slight imbalance (5000 real vs 5024 fake) but should not affect results and still yeild in accurate result
+    for _ in range(num_batches):
+        fake_images, _ = gen_images(batch_size, generator, num_blocks, mixing_prob, dim_w, mapping_net, device)
+        fake_images = transform(fake_images)
+        kid.update(fake_images, real=False)
+        del fake_images
+        torch.cuda.empty_cache
+    kid_values = kid.compute()
+    kid.reset()
     return [kid_values[0].item(), kid_values[1].item()]
           
 if __name__ == "__main__":
