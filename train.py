@@ -30,7 +30,7 @@ def train():
     mixing_prob = 0.9
     epochs = 30
 
-    grad_pen_interval = 4
+    grad_pen_interval = 32
     grad_pen_coef = 10.
     path_pen_interval = 32
     path_pen_after = 5000
@@ -40,7 +40,7 @@ def train():
     generator = Generator(int(math.log2(img_res)),dim_w).to(device)
     discriminator = Discriminator(int(math.log2(img_res))).to(device)
     mapping_net = MappingMLP(dim_w, mappingnet_layers).to(device)
-    ema = EMA(generator).to(device)
+    ema = EMA(generator)
 
     num_blocks = int(math.log2(img_res))-1
     disc_loss = DiscriminatorLoss().to(device)
@@ -83,8 +83,8 @@ def train():
             fake_images, _ = gen_images(batch_size, generator, num_blocks, mixing_prob, dim_w, mapping_net, device)
             fake_output = discriminator(fake_images.detach())
             # requires.grad if reaches gradient penalty interval (set to 4)
-            if (batch_idx+1) % grad_pen_interval == 0:
-                real_images.requires_grad_()
+            #if (batch_idx+1) % grad_pen_interval == 0:
+            #    real_images.requires_grad_()
             real_output = discriminator(real_images)
 
             real_loss, fake_loss = disc_loss(real_output, fake_output)
@@ -124,6 +124,7 @@ def train():
             gpu_mb_alloc.append(torch.cuda.memory_allocated() / (1024 ** 2))
             gpu_mb_reserved.append(torch.cuda.memory_reserved() / (1024 ** 2))
             total_imgs_seen+=batch_size
+            del real_images, fake_images, w
         times_per_epoch.append(time.time()-start_time)
         fid_score = compute_fid(fid_real_imgs,mapping_net,ema.ema_model,device)
         fid_scores.append(fid_score)
@@ -146,7 +147,7 @@ def train():
     plt.ylabel("Loss")
     plt.legend()
     plt.title("Training Loss Curves")
-    plt.savefig(f"loss_plot_{dataset_name}_{img_res}.png")
+    plt.savefig(f"loss_plot_sgan2_{dataset_name}_{img_res}.png")
     plt.show()
 
     plt.figure(figsize=(10, 5))
@@ -156,7 +157,7 @@ def train():
     plt.ylabel("MB")
     plt.legend()
     plt.title("Training Memory Usage")
-    plt.savefig(f"memory_plot_{dataset_name}_{img_res}.png")
+    plt.savefig(f"memory_plot_sgan2_{dataset_name}_{img_res}.png")
     plt.show()
     """
     plt.figure(figsize=(10, 5))
@@ -200,7 +201,7 @@ def train():
     # Layout and title
     fig.tight_layout()
     plt.title("FID and KID over Training Time")
-    plt.savefig(f"fid_vs_kid_plot_{dataset_name}_{str(im_size)}.png")
+    plt.savefig(f"fid_vs_kid_sgan2_plot_{dataset_name}_{str(im_size)}.png")
     plt.show()
 
 
@@ -280,11 +281,10 @@ def load_real_images(real_dataloader, device, sample_size= 5000): # fit all real
             break
     real_images = torch.cat(real_images, dim=0)[:sample_size]
     real_images = transform(real_images).to(device)
-    #real_images = transform(real_images)
     return real_images
 @torch.no_grad()
 def compute_fid(real_imgs, mapping_net, generator, device, res=64, mixing_prob=0.9, dim_w=512,batch_size=32, sample_size=5000): # use EMA for generator
-    real_imgs.to(device)
+    #real_imgs.to(device)
     fid = FrechetInceptionDistance(feature=2048, normalize=True).to(device)
     num_blocks = int(math.log2(res))-1
     fid.update(real_imgs[:sample_size], real=True)
@@ -297,6 +297,8 @@ def compute_fid(real_imgs, mapping_net, generator, device, res=64, mixing_prob=0
         torch.cuda.empty_cache
     fid_value = fid.compute()
     fid.reset()
+    del fid
+    torch.cuda.empty_cache()
     return fid_value.item()
 
 @torch.no_grad()
@@ -314,6 +316,8 @@ def compute_kid(real_imgs, mapping_net, generator, device, res=64, mixing_prob=0
         torch.cuda.empty_cache
     kid_values = kid.compute()
     kid.reset()
+    del kid
+    torch.cuda.empty_cache()
     return [kid_values[0].item(), kid_values[1].item()]
           
 if __name__ == "__main__":
