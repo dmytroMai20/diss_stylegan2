@@ -17,6 +17,9 @@ import torchvision.utils as vutils
 import torchvision.transforms as T
 import time
 import numpy as np
+import os
+from torchvision.utils import save_image
+from metrics import compute_fid, compute_kid, save_generated_images
 
 def train():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -70,6 +73,7 @@ def train():
     fid_real_imgs = load_real_images(data_loader,device)
 
     total_imgs_seen = 0
+    test_samples = 500
 
     gpu_mb_alloc = []
     gpu_mb_reserved = []
@@ -83,8 +87,8 @@ def train():
             fake_images, _ = gen_images(batch_size, generator, num_blocks, mixing_prob, dim_w, mapping_net, device)
             fake_output = discriminator(fake_images.detach())
             # requires.grad if reaches gradient penalty interval (set to 4)
-            #if (batch_idx+1) % grad_pen_interval == 0:
-            #    real_images.requires_grad_()
+            if (batch_idx+1) % grad_pen_interval == 0:
+                real_images.requires_grad_()
             real_output = discriminator(real_images)
 
             real_loss, fake_loss = disc_loss(real_output, fake_output)
@@ -126,14 +130,34 @@ def train():
             total_imgs_seen+=batch_size
             del real_images, fake_images, w
         times_per_epoch.append(time.time()-start_time)
-        fid_score = compute_fid(fid_real_imgs,mapping_net,ema.ema_model,device)
+        ###
+        torch.cuda.empty_cache()
+        with torch.no_grad():
+            generated_images = []
+            num_batches = test_samples // batch_size 
+            for _ in range(num_batches):
+                fake_ims = gen_images(batch_size, generator, num_blocks, mixing_prob, dim_w, mapping_net, device)
+                generated_images.append(fake_ims)
+            generated_images = torch.cat(generated_images, dim=0)
+            fid_score = compute_fid(fid_real_imgs, generated_images,device)
+            fid_scores.append(fid_score)
+            if fid_score >= best_fid:
+                best_fid = fid_score
+                best_model = ema.ema_model.state_dict()
+            kid_mean, kid_std = compute_kid(fid_real_imgs, mapping_net, ema.ema_model, device)
+            kid_means.append(kid_mean)
+            kid_stds.append(kid_std)
+            save_generated_images(generated_images, epoch, dataset_name, img_res)
+            del generated_images
+            torch.cuda.empty_cache()
+        """fid_score = compute_fid(fid_real_imgs,mapping_net,ema.ema_model,device)
         fid_scores.append(fid_score)
         if fid_score >= best_fid:
              best_fid = fid_score
              best_model = ema.ema_model.state_dict()
         kid_mean, kid_std = compute_kid(fid_real_imgs, mapping_net, ema.ema_model, device)
         kid_means.append(kid_mean)
-        kid_stds.append(kid_std)
+        kid_stds.append(kid_std)"""
         print(f"epoch {epoch}/{epochs} completed. FID score: {fid_scores[-1]}")
     save_model("data", mapping_net, generator, ema.ema_model,best_model, dataset_name, str(im_size))
 
@@ -148,6 +172,17 @@ def train():
     plt.legend()
     plt.title("Training Loss Curves")
     plt.savefig(f"loss_plot_sgan2_{dataset_name}_{img_res}.png")
+    plt.show()
+
+    plt.figure(figsize=(10, 5))
+    plt.plot(d_losses, label="Discriminator Loss")
+    plt.plot(g_losses, label="Generator Loss")
+    plt.xlabel("Iteration")
+    plt.yscale("log")
+    plt.ylabel("Loss (log scale)")
+    plt.legend()
+    plt.title("Training Loss Curves")
+    plt.savefig(f"log_loss_plot_sgan2_{dataset_name}_{img_res}.png")
     plt.show()
 
     plt.figure(figsize=(10, 5))
@@ -186,7 +221,7 @@ def train():
 
     # FID line (left y-axis)
     color = 'tab:blue'
-    ax1.set_xlabel('Epoch')
+    ax1.set_xlabel('Time (Seconds)')
     ax1.set_ylabel('FID', color=color)
     ax1.plot(cum_times, fid_scores, color=color, label='FID')
     ax1.tick_params(axis='y', labelcolor=color)
@@ -273,7 +308,7 @@ transform = T.Compose([
 ])
 
 @torch.no_grad()
-def load_real_images(real_dataloader, device, sample_size= 5000): # fit all real images on the device straight away to reduce I/O cost of fitting on device 
+def load_real_images(real_dataloader, device, sample_size= 500): # fit all real images on the device straight away to reduce I/O cost of fitting on device 
     real_images = []
     for imgs, _ in real_dataloader:
         real_images.append(imgs)
@@ -282,7 +317,7 @@ def load_real_images(real_dataloader, device, sample_size= 5000): # fit all real
     real_images = torch.cat(real_images, dim=0)[:sample_size]
     real_images = transform(real_images).to(device)
     return real_images
-@torch.no_grad()
+"""@torch.no_grad()
 def compute_fid(real_imgs, mapping_net, generator, device, res=64, mixing_prob=0.9, dim_w=512,batch_size=32, sample_size=5000): # use EMA for generator
     #real_imgs.to(device)
     fid = FrechetInceptionDistance(feature=2048, normalize=True).to(device)
@@ -319,7 +354,21 @@ def compute_kid(real_imgs, mapping_net, generator, device, res=64, mixing_prob=0
     del kid
     torch.cuda.empty_cache()
     return [kid_values[0].item(), kid_values[1].item()]
-          
+"""
+def save_generated_images(images, epoch,dataset,res, folder='data'):
+    if images.min() < 0:
+        images = (images + 1) / 2  # Assuming input is in [-1, 1]
+
+    # Create directory for this epoch
+    epoch_dir = os.path.join(folder,f'stylegan_{dataset}_{str(res)}', f'epoch_{str(epoch)}')
+    os.makedirs(epoch_dir, exist_ok=True)
+
+    # Save each image
+    for i in range(images.size(0)):
+        save_path = os.path.join(epoch_dir, f'image_{i:04d}.png')
+        save_image(images[i], save_path)
+    print(f"Epoch images saved to {epoch_dir}")
+
 if __name__ == "__main__":
     train()
     #data_loader = dataset.get_loader(32,64,"CelebA")
