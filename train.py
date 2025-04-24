@@ -136,7 +136,7 @@ def train():
             generated_images = []
             num_batches = test_samples // batch_size 
             for _ in range(num_batches):
-                fake_ims = gen_images(batch_size, generator, num_blocks, mixing_prob, dim_w, mapping_net, device)
+                fake_ims, _ = gen_images(batch_size, ema.ema_model, num_blocks, mixing_prob, dim_w, mapping_net, device)
                 generated_images.append(fake_ims)
             generated_images = torch.cat(generated_images, dim=0)
             fid_score = compute_fid(fid_real_imgs, generated_images,device)
@@ -144,7 +144,7 @@ def train():
             if fid_score >= best_fid:
                 best_fid = fid_score
                 best_model = ema.ema_model.state_dict()
-            kid_mean, kid_std = compute_kid(fid_real_imgs, mapping_net, ema.ema_model, device)
+            kid_mean, kid_std = compute_kid(fid_real_imgs,generated_images, device)
             kid_means.append(kid_mean)
             kid_stds.append(kid_std)
             save_generated_images(generated_images, epoch, dataset_name, img_res)
@@ -242,7 +242,7 @@ def train():
 
 
     # save FID, KID and times at each epoch to compare to DDPM
-    save_metrics("data",cum_times, fid_scores, kid_means, kid_stds, gpu_mb_alloc, gpu_mb_reserved, time_per_kimg, batch_size, dataset_name, str(im_size))
+    save_metrics("data",cum_times, fid_scores, kid_means, kid_stds, gpu_mb_alloc, gpu_mb_reserved, time_per_kimg,g_losses,d_losses, batch_size, dataset_name, str(im_size))
     
 def get_w(batch_size: int, style_mixing_prob, num_blocks, w_dims, mapping_network,device):
         if torch.rand(()).item() < style_mixing_prob:
@@ -284,16 +284,18 @@ def gen_images(batch_size, generator, num_blocks, style_mixing_prob, w_dims, mlp
      imgs = generator(w, noise)
      return imgs, w
 
-def save_metrics(path, times, fids, kids_mean, kids_stds, gpu_alloc, gpu_reserved, time_kimg, batch_size, dataset, res):
+def save_metrics(path, times, fids, kids_mean, kids_stds, gpu_alloc, gpu_reserved, time_kimg,gen_loss,disc_loss, batch_size, dataset, res):
     save_path = f"{path}/stylegan2_{dataset}_{res}_metrics.pth"
     torch.save({'times':times,
                 'fids':fids,
                 'kids_mean':kids_mean,
                 'kids_stds':kids_stds,
-                'gpu_alloc':gpu_alloc,  #gpu alloc and reserved in mb
+                'gpu_alloc':gpu_alloc, 
                 'gpu_reserved':gpu_reserved,
                 'time_kimg':time_kimg,
-                'batch_size':batch_size}, save_path)
+                'batch_size':batch_size,
+                'generator_loss': gen_loss,
+                'discriminator_loss':disc_loss}, save_path)
      
 def save_model(path, mapping_net, generator, ema, best_model, dataset,res):
     save_path = f"{path}/stylegan2_{dataset}_{res}.pt"

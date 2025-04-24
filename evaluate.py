@@ -6,7 +6,7 @@ from train import gen_images
 
 import matplotlib.pyplot as plt
 import torchvision.utils as vutils
-
+from scipy.stats import truncnorm
 
 def load_model(path, dataset, res, device):
     checkpoint = torch.load(f"{path}/stylegan2_{dataset}_{res}.pt", map_location=device)
@@ -47,6 +47,10 @@ def main():
     plt.imshow(grid.permute(1, 2, 0).cpu().numpy())
     plt.show()
     
+
+def truncated_z_sample(batch_size, z_dim, truncation=0.5):
+  values = truncnorm.rvs(-2, 2, size=(batch_size, z_dim))
+  return truncation * values
 
 if __name__=="__main__":
     main()
