@@ -5,6 +5,7 @@ from torchvision.datasets import FashionMNIST
 from torchvision.datasets import CelebA
 from torchvision.datasets import STL10
 from torch.utils.data import DataLoader
+from torchvision.datasets import LSUN
 
 
 def get_loader(batch_s,res, data="FashionMNIST"):
@@ -41,7 +42,6 @@ def get_loader(batch_s,res, data="FashionMNIST"):
     elif data == "STL10":
         transform = transforms.Compose([
         transforms.Resize(res),  # Resize to 128x128 (common for GANs)
-        transforms.CenterCrop(res),
         transforms.ToTensor(),  # Convert to tensor
         transforms.Normalize([0.5]*3, [0.5]*3)
         #transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])  # Normalize RGB channels
@@ -49,6 +49,19 @@ def get_loader(batch_s,res, data="FashionMNIST"):
 
         # Download and load the dataset
         dataset = STL10(root="./data", split="unlabeled", download=True, transform=transform)
+        # Create a DataLoader
+        dataloader = DataLoader(dataset, batch_size=batch_s, drop_last=True, shuffle=True, num_workers=1, pin_memory=True)
+        return dataloader
+    elif data == "Church":
+        transform = transforms.Compose([
+        transforms.Resize(res),  # Resize to 128x128 (common for GANs)
+        transforms.ToTensor(),  # Convert to tensor
+        transforms.Normalize([0.5]*3, [0.5]*3)
+        #transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])  # Normalize RGB channels
+        ])
+
+        # Download and load the dataset
+        dataset = LSUN(root="./data",classes=["church_outdoor_train"], transform=transform)
         # Create a DataLoader
         dataloader = DataLoader(dataset, batch_size=batch_s, drop_last=True, shuffle=True, num_workers=1, pin_memory=True)
         return dataloader
